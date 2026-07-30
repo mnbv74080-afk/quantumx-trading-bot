@@ -29,14 +29,19 @@ ACCOUNT_BALANCE = 100000.0  # رأس مال حساب المسابقة
 MAX_ALLOWED_LOTS = {
     "EURUSD": 5.0,
     "GBPUSD": 5.0,
+    "AUDUSD": 5.0,
+    "USDJPY": 5.0,
+    "USDCAD": 5.0,
+    "GBPJPY": 3.0,
     "XAUUSD": 3.0,
     "GER30": 3.0,
     "US30": 3.0,
-    "NAS100": 3.0  # إضافة النازداك بسقف 3 لوت
+    "NAS100": 3.0
 }
 
-# ⚙️ تخصيص مرن ومحسّن لتوليد صفقات متكررة (شامل الداو جونز والنازداك)
+# ⚙️ تخصيص استراتيجي شامل لـ 10 أصول (Custom Multi-Asset Engine)
 ASSETS_CONFIG = {
+    # ─── الذهب والعملات الأساسية ───
     "XAUUSD": {
         "ticker": "GC=F", "period": "5d", "interval": "15m", "higher_interval": "1h",
         "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.55, "atr_sl_mult": 1.4, "min_adx": 14,
@@ -52,6 +57,30 @@ ASSETS_CONFIG = {
         "tp1_mult": 1.5, "tp2_mult": 2.5, "min_prob": 0.55, "atr_sl_mult": 1.1, "min_adx": 14,
         "contract_size": 100000
     },
+    
+    # ─── العملات الأربعة الجديدة المضافة ───
+    "GBPJPY": {
+        "ticker": "GBPJPY=X", "period": "5d", "interval": "15m", "higher_interval": "1h",
+        "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.58, "atr_sl_mult": 1.4, "min_adx": 14,
+        "contract_size": 100000
+    },
+    "AUDUSD": {
+        "ticker": "AUDUSD=X", "period": "5d", "interval": "15m", "higher_interval": "1h",
+        "tp1_mult": 1.5, "tp2_mult": 2.5, "min_prob": 0.55, "atr_sl_mult": 1.1, "min_adx": 14,
+        "contract_size": 100000
+    },
+    "USDJPY": {
+        "ticker": "JPY=X", "period": "5d", "interval": "15m", "higher_interval": "1h",
+        "tp1_mult": 1.5, "tp2_mult": 2.5, "min_prob": 0.55, "atr_sl_mult": 1.2, "min_adx": 14,
+        "contract_size": 100000
+    },
+    "USDCAD": {
+        "ticker": "CAD=X", "period": "5d", "interval": "15m", "higher_interval": "1h",
+        "tp1_mult": 1.5, "tp2_mult": 2.5, "min_prob": 0.55, "atr_sl_mult": 1.2, "min_adx": 14,
+        "contract_size": 100000
+    },
+
+    # ─── المؤشرات العالمية ───
     "US30": {
         "ticker": "^DJI", "period": "5d", "interval": "15m", "higher_interval": "1h",
         "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.58, "atr_sl_mult": 1.5, "min_adx": 14,
@@ -186,14 +215,14 @@ def train_xgboost(df):
 # 4. المحرك الرئيسي للبطولة
 # ==========================================
 def main():
-    print("⚡ Dual-Bot US30 & NAS100 Extended Engine Online (100K Cloud)...")
+    print("⚡ 10-Asset Tournament Engine Online (100K Cloud)...")
     send_telegram(
-        "⚡ *تحديث المحرك - إضافة المؤشرات الأمريكية (100K)*\n"
+        "⚡ *تحديث المحرك الشامل - تفعيل 10 أصول رئيسية (100K)*\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "📈 *الأصول المضافة:* تم تفعيل الداو جونز (US30) والنازداك (NAS100) بنجاح.\n"
-        "🌙 *جلسة آسيا والمؤشرات:* فحص مستمر بداية من الساعة 01:00 صباحاً.\n"
-        "🛡️ *سقف اللوت:* 3 لوت للمؤشرات والذهب / 5 لوت للعملات.\n"
-        "🚀 *حالة النظام:* مراقبة 6 أصول رئيسية وإرسال التنبيهات للبوتين!"
+        "🌐 *قائمة الأصول:* XAUUSD, EURUSD, GBPUSD, GBPJPY, AUDUSD, USDJPY, USDCAD, US30, NAS100, GER30.\n"
+        "🌙 *تغطية 24 ساعة:* شاملة لجلسات آسيا، لندن، ونيويورك الممتدة.\n"
+        "🛡️ *استراتيجيات مخصصة:* كل زوج مضبوط باستراتيجيات وستوب وأهداف متوافقة مع طبيعته السعرية.\n"
+        "🚀 *حالة النظام:* الشاشة تعمل وتفحص الأصول العشرة بانتظام لإرسال التنبيهات للبوتين!"
     )
 
     scanned_candles = {symbol: None for symbol in ASSETS_CONFIG.keys()}
