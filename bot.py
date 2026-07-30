@@ -8,9 +8,8 @@ from datetime import datetime, time as dtime
 from xgboost import XGBClassifier
 
 # ==========================================
-# 1. إعدادات التليجرام الجديدة وحساب المسابقة (100K)
+# 1. إعدادات التليجرام وحساب المسابقة (100K)
 # ==========================================
-# قائمة البوتات الجديدة (Bahaa Salah & B S)
 TELEGRAM_BOTS = [
     {
         "name": "XAUUSD PRO (Bahaa Salah)",
@@ -35,33 +34,33 @@ MAX_ALLOWED_LOTS = {
     "US30": 3.0
 }
 
-# ⚙️ تخصيص الاستراتيجيات بفرص مضاعفة ومعدلة للمسابقة (Flexible / High-Frequency Config)
+# ⚙️ تخصيص مرن ومحسّن لتوليد صفقات متكررة (Asia Enabled + Flexible Frequency)
 ASSETS_CONFIG = {
     "XAUUSD": {
         "ticker": "GC=F", "period": "5d", "interval": "15m", "higher_interval": "1h",
-        "tp1_mult": 1.5, "tp2_mult": 3.5, "min_prob": 0.70, "atr_sl_mult": 1.6, "min_adx": 20,
+        "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.55, "atr_sl_mult": 1.4, "min_adx": 14,
         "contract_size": 100
     },
     "EURUSD": {
         "ticker": "EURUSD=X", "period": "5d", "interval": "15m", "higher_interval": "1h",
-        "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.68, "atr_sl_mult": 1.2, "min_adx": 20,
+        "tp1_mult": 1.5, "tp2_mult": 2.5, "min_prob": 0.55, "atr_sl_mult": 1.1, "min_adx": 14,
         "contract_size": 100000
     },
     "GBPUSD": {
         "ticker": "GBPUSD=X", "period": "5d", "interval": "15m", "higher_interval": "1h",
-        "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.68, "atr_sl_mult": 1.2, "min_adx": 20,
+        "tp1_mult": 1.5, "tp2_mult": 2.5, "min_prob": 0.55, "atr_sl_mult": 1.1, "min_adx": 14,
         "contract_size": 100000
     },
     "US30": {
         "ticker": "^DJI", "period": "5d", "interval": "15m", "higher_interval": "1h",
-        "tp1_mult": 1.5, "tp2_mult": 4.0, "min_prob": 0.72, "atr_sl_mult": 1.8, "min_adx": 22,
-        "start_hour": 15, "start_min": 30, "end_hour": 19, "end_min": 0,
+        "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.58, "atr_sl_mult": 1.5, "min_adx": 14,
+        "start_hour": 1, "start_min": 0, "end_hour": 23, "end_min": 0,
         "contract_size": 1
     },
     "GER30": {
         "ticker": "^GDAXI", "period": "5d", "interval": "15m", "higher_interval": "1h",
-        "tp1_mult": 1.5, "tp2_mult": 3.5, "min_prob": 0.72, "atr_sl_mult": 1.6, "min_adx": 22,
-        "start_hour": 9, "start_min": 0, "end_hour": 12, "end_min": 30,
+        "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.58, "atr_sl_mult": 1.4, "min_adx": 14,
+        "start_hour": 1, "start_min": 0, "end_hour": 22, "end_min": 0,
         "contract_size": 1
     }
 }
@@ -81,7 +80,7 @@ def send_telegram(message):
 
 def calculate_dynamic_lot(symbol, sl_dist_price, confidence_prob):
     """حساب اللوت ديناميكياً بحجم مخاطرة 1% - 2% وسقف أقصى للمسابقة"""
-    risk_pct = 0.02 if confidence_prob >= 0.80 else 0.01
+    risk_pct = 0.02 if confidence_prob >= 0.70 else 0.01
     risk_amount = ACCOUNT_BALANCE * risk_pct
     
     contract_size = ASSETS_CONFIG[symbol]["contract_size"]
@@ -96,6 +95,7 @@ def calculate_dynamic_lot(symbol, sl_dist_price, confidence_prob):
     return round(lot, 2)
 
 def is_asset_trading_window(symbol):
+    """فحص أوقات التداول مع دعم كامل وجديد لجلسة آسيا"""
     now = datetime.now().time()
     config = ASSETS_CONFIG.get(symbol)
     
@@ -104,7 +104,16 @@ def is_asset_trading_window(symbol):
         end_time = dtime(config["end_hour"], config.get("end_min", 0), 0)
         return start_time <= now <= end_time
     
-    return (dtime(8, 0, 0) <= now <= dtime(13, 0, 0)) or (dtime(15, 0, 0) <= now <= dtime(20, 0, 0))
+    # 1. جلسة آسيا (01:00 - 07:00)
+    asia_start, asia_end = dtime(1, 0, 0), dtime(7, 0, 0)
+    # 2. جلسة لندن (08:00 - 14:00)
+    london_start, london_end = dtime(8, 0, 0), dtime(14, 0, 0)
+    # 3. جلسة نيويورك الممتدة (15:00 - 23:00)
+    ny_start, ny_end = dtime(15, 0, 0), dtime(23, 0, 0)
+    
+    return (asia_start <= now <= asia_end) or \
+           (london_start <= now <= london_end) or \
+           (ny_start <= now <= ny_end)
 
 # ==========================================
 # 3. معالجة البيانات الفنية وXGBoost
@@ -113,7 +122,7 @@ def fetch_and_process_data(symbol):
     config = ASSETS_CONFIG[symbol]
     try:
         df = yf.download(tickers=config["ticker"], period=config["period"], interval=config["interval"], progress=False)
-        if df.empty or len(df) < 50:
+        if df.empty or len(df) < 30:
             return None
             
         df = df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
@@ -162,7 +171,7 @@ def get_higher_tf_trend(symbol):
 def train_xgboost(df):
     features = ['returns', 'ema_20', 'ema_50', 'atr', 'adx', 'rvol']
     X, y = df[features], df['target']
-    model = XGBClassifier(n_estimators=180, max_depth=4, learning_rate=0.03, random_state=42, eval_metric='logloss')
+    model = XGBClassifier(n_estimators=100, max_depth=3, learning_rate=0.05, random_state=42, eval_metric='logloss')
     model.fit(X, y)
     return model, features
 
@@ -170,14 +179,14 @@ def train_xgboost(df):
 # 4. المحرك الرئيسي للبطولة
 # ==========================================
 def main():
-    print("⚡ Dual-Bot High-Frequency Tournament Engine Activated (100K Cloud)...")
+    print("⚡ Dual-Bot Asia Extended Engine Online (100K Cloud)...")
     send_telegram(
-        "⚡ *المحرك المطور للمسابقة - ربط مزدوج (100K)*\n"
+        "⚡ *المحرك المطور للمسابقة - وضع توليد الصفقات اليومية (100K)*\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "🤖 *النظام:* تم ربط البوتين (BAHAA_Trading_bot & BAHAA1_Trading_bot) بنجاح.\n"
-        "🎯 *الحساسية:* وضع تكثيف الفرص مفعل لاقتناص أكبر عدد من الصفقات.\n"
-        "🛡️ *الالتزام:* حماية رأس المال وسقف اللوت مفعلين بالكامل (3 لوت للمؤشرات والذهب / 5 للعملات).\n"
-        "🚀 *حالة النظام:* مراقبة فورية لجميع الأزواج وإرسال الإشارات مجتمعة!"
+        "🌙 *جلسة آسيا:* تم تفعيل التداول التلقائي من 01:00 صباحاً.\n"
+        "🎯 *الحساسية:* مرونة مرتفعة لضمان إرسال صفقتين على الأقل يومياً.\n"
+        "🛡️ *الالتزام:* إدارة رأس مال حازمة وحماية من الانزلاقات السعرية.\n"
+        "🚀 *حالة النظام:* الشاشة تعمل 24 ساعة للفحص المستمر!"
     )
 
     scanned_candles = {symbol: None for symbol in ASSETS_CONFIG.keys()}
@@ -188,7 +197,7 @@ def main():
                 if not is_asset_trading_window(symbol): continue
 
                 df = fetch_and_process_data(symbol)
-                if df is None or len(df) < 50: continue
+                if df is None or len(df) < 30: continue
 
                 current_candle_time = df.index[-1]
 
@@ -208,9 +217,9 @@ def main():
                     sl_dist = atr * config['atr_sl_mult']
                     signal = None
 
-                    # فلترة محسنة لدخول الصفقات
-                    if rvol >= 1.0:
-                        if pred == 1 and prob[1] >= config['min_prob'] and adx >= config['min_adx'] and higher_trend == "BULLISH" and current_price > ema20:
+                    # مرونة محسنة لتوليد الفرص (RVOL >= 0.7)
+                    if rvol >= 0.7:
+                        if pred == 1 and prob[1] >= config['min_prob'] and adx >= config['min_adx']:
                             signal = "BUY"
                             confidence = prob[1] * 100
                             entry_price = current_price
@@ -218,7 +227,7 @@ def main():
                             tp1 = entry_price + (sl_dist * config['tp1_mult'])
                             tp2 = entry_price + (sl_dist * config['tp2_mult'])
 
-                        elif pred == 0 and prob[0] >= config['min_prob'] and adx >= config['min_adx'] and higher_trend == "BEARISH" and current_price < ema20:
+                        elif pred == 0 and prob[0] >= config['min_prob'] and adx >= config['min_adx']:
                             signal = "SELL"
                             confidence = prob[0] * 100
                             entry_price = current_price
@@ -229,7 +238,7 @@ def main():
                     if signal:
                         recommended_lot = calculate_dynamic_lot(symbol, sl_dist, confidence/100)
                         max_limit_note = f" (الحد الأقصى المسموح {MAX_ALLOWED_LOTS[symbol]} Lot)"
-                        risk_flag = "🔥 فرصة عالية القوة (ثقة +80%)" if confidence >= 80 else "🛡️ صفقة قياسية"
+                        risk_flag = "🔥 فرصة قوية (ثقة +70%)" if confidence >= 70 else "🛡️ صفقة سريعة (جلسة متجددة)"
 
                         msg = (
                             f"🏆 *إشارة مسابقة معتمدة ({symbol})*\n"
