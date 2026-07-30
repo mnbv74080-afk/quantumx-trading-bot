@@ -31,10 +31,11 @@ MAX_ALLOWED_LOTS = {
     "GBPUSD": 5.0,
     "XAUUSD": 3.0,
     "GER30": 3.0,
-    "US30": 3.0
+    "US30": 3.0,
+    "NAS100": 3.0  # إضافة النازداك بسقف 3 لوت
 }
 
-# ⚙️ تخصيص مرن ومحسّن لتوليد صفقات متكررة (Asia Enabled + Flexible Frequency)
+# ⚙️ تخصيص مرن ومحسّن لتوليد صفقات متكررة (شامل الداو جونز والنازداك)
 ASSETS_CONFIG = {
     "XAUUSD": {
         "ticker": "GC=F", "period": "5d", "interval": "15m", "higher_interval": "1h",
@@ -53,6 +54,12 @@ ASSETS_CONFIG = {
     },
     "US30": {
         "ticker": "^DJI", "period": "5d", "interval": "15m", "higher_interval": "1h",
+        "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.58, "atr_sl_mult": 1.5, "min_adx": 14,
+        "start_hour": 1, "start_min": 0, "end_hour": 23, "end_min": 0,
+        "contract_size": 1
+    },
+    "NAS100": {
+        "ticker": "^NDX", "period": "5d", "interval": "15m", "higher_interval": "1h",
         "tp1_mult": 1.5, "tp2_mult": 3.0, "min_prob": 0.58, "atr_sl_mult": 1.5, "min_adx": 14,
         "start_hour": 1, "start_min": 0, "end_hour": 23, "end_min": 0,
         "contract_size": 1
@@ -95,7 +102,7 @@ def calculate_dynamic_lot(symbol, sl_dist_price, confidence_prob):
     return round(lot, 2)
 
 def is_asset_trading_window(symbol):
-    """فحص أوقات التداول مع دعم كامل وجديد لجلسة آسيا"""
+    """فحص أوقات التداول مع دعم كامل لجلسة آسيا والمؤشرات"""
     now = datetime.now().time()
     config = ASSETS_CONFIG.get(symbol)
     
@@ -179,14 +186,14 @@ def train_xgboost(df):
 # 4. المحرك الرئيسي للبطولة
 # ==========================================
 def main():
-    print("⚡ Dual-Bot Asia Extended Engine Online (100K Cloud)...")
+    print("⚡ Dual-Bot US30 & NAS100 Extended Engine Online (100K Cloud)...")
     send_telegram(
-        "⚡ *المحرك المطور للمسابقة - وضع توليد الصفقات اليومية (100K)*\n"
+        "⚡ *تحديث المحرك - إضافة المؤشرات الأمريكية (100K)*\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        "🌙 *جلسة آسيا:* تم تفعيل التداول التلقائي من 01:00 صباحاً.\n"
-        "🎯 *الحساسية:* مرونة مرتفعة لضمان إرسال صفقتين على الأقل يومياً.\n"
-        "🛡️ *الالتزام:* إدارة رأس مال حازمة وحماية من الانزلاقات السعرية.\n"
-        "🚀 *حالة النظام:* الشاشة تعمل 24 ساعة للفحص المستمر!"
+        "📈 *الأصول المضافة:* تم تفعيل الداو جونز (US30) والنازداك (NAS100) بنجاح.\n"
+        "🌙 *جلسة آسيا والمؤشرات:* فحص مستمر بداية من الساعة 01:00 صباحاً.\n"
+        "🛡️ *سقف اللوت:* 3 لوت للمؤشرات والذهب / 5 لوت للعملات.\n"
+        "🚀 *حالة النظام:* مراقبة 6 أصول رئيسية وإرسال التنبيهات للبوتين!"
     )
 
     scanned_candles = {symbol: None for symbol in ASSETS_CONFIG.keys()}
