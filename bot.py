@@ -9,7 +9,7 @@ import yfinance as yf
 # 1. إعدادات البوتين والأصول (Configuration)
 # =====================================================================
 
-# قائمة البوتات المستهدفة للإرسال (Bot 1 & Bot 2)
+# إعدادات البوتين المحددة لإرسال التنبيهات والتحديثات
 BOTS_CONFIG = [
     {
         "name": "BAHAA_Trading_bot",
@@ -23,7 +23,7 @@ BOTS_CONFIG = [
     }
 ]
 
-# قائمة الأصول الـ 10 المراقبة
+# قائمة الأصول الـ 10 المراقبة مع تصحيح الرموز لـ Yahoo Finance
 SYMBOLS_MAP = {
     'XAUUSD': 'GC=F',
     'US30': '^DJI',
@@ -33,11 +33,11 @@ SYMBOLS_MAP = {
     'GBPUSD': 'GBPUSD=X',
     'GBPJPY': 'GBPJPY=X',
     'AUDUSD': 'AUDUSD=X',
-    'USDJPY': 'JPY=X',
-    'USDCAD': 'CAD=X'
+    'USDJPY': 'USDJPY=X',
+    'USDCAD': 'USDCAD=X'
 }
 
-# شروط الدقة المطلوبة (65% للذهب والمؤشرات / 70% للعملات)
+# نسبة الدقة المطلوبة حسب نوع الأصل (65% للمؤشرات والذهب / 70% للعملات)
 MIN_AI_ACCURACY = {
     'XAUUSD': 0.65,
     'NAS100': 0.65,
@@ -49,7 +49,7 @@ MIN_AI_ACCURACY = {
 last_signal_time = {}
 COOLDOWN_PERIOD = 1800  # 30 دقيقة مانع تكرار لنفس الزوج
 
-# قائمة التتبع المباشر للصفقات النشطة
+# قائمة الصفقات النشطة المفتوحة للتتبع
 active_trades = []
 
 # =====================================================================
@@ -57,7 +57,7 @@ active_trades = []
 # =====================================================================
 
 def broadcast_telegram_message(message):
-    """إرسال التنبيه أوتوماتيكياً إلى البوتين معاً"""
+    """إرسال الرسائل والتنبيهات أوتوماتيكياً إلى البوتين معاً"""
     for bot in BOTS_CONFIG:
         url = f"https://api.telegram.org/bot{bot['token']}/sendMessage"
         payload = {
@@ -68,33 +68,35 @@ def broadcast_telegram_message(message):
         try:
             res = requests.post(url, json=payload, timeout=10)
             if res.status_code == 200:
-                print(f"✅ تم إرسال التنبيه بنجاح عبر البوت: {bot['name']}")
+                print(f"✅ تم الإرسال بنجاح عبر البوت: {bot['name']}")
             else:
                 print(f"⚠️ فشل الإرسال عبر {bot['name']}: {res.text}")
         except Exception as e:
             print(f"❌ خطأ شبكة أثناء الإرسال للبوت {bot['name']}: {e}")
 
 # =====================================================================
-# 3. محرك التحليل والجلب (Analysis Engine)
+# 3. محرك جلب البيانات والتحليل المتقدم (Analysis Engine)
 # =====================================================================
 
 def get_required_accuracy(symbol):
     return MIN_AI_ACCURACY.get(symbol, MIN_AI_ACCURACY['DEFAULT'])
 
 def fetch_market_data(ticker_symbol):
+    """جلب بيانات الشارت بطريقة مضمونة ومقاومة للتقييد"""
     try:
-        df = yf.download(tickers=ticker_symbol, period="5d", interval="15m", progress=False)
-        if df.empty or len(df) < 200:
+        ticker = yf.Ticker(ticker_symbol)
+        df = ticker.history(period="7d", interval="15m")
+        if df.empty or len(df) < 50:
             return None
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        df = df.reset_index()
         df.columns = [c.lower() for c in df.columns]
         return df
     except Exception as e:
-        print(f"⚠️ خطأ جلب بيانات {ticker_symbol}: {e}")
+        print(f"⚠️ خطأ في جلب بيانات {ticker_symbol}: {e}")
         return None
 
 def analyze_market_advanced(df, symbol):
+    """تحليل الحركة الفنية وفلترة الدقة والاتجاه والسيولة"""
     df['EMA_200'] = df['close'].ewm(span=200, adjust=False).mean()
     df['EMA_50'] = df['close'].ewm(span=50, adjust=False).mean()
     df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -120,6 +122,7 @@ def analyze_market_advanced(df, symbol):
     ai_score = 0.50
     signal_direction = None
 
+    # شرط الاتجاه الصاعد BUY
     if current_price > latest['EMA_200'] and latest['EMA_20'] > latest['EMA_50']:
         if 40 <= latest['RSI'] <= 65:
             ai_score += 0.15
@@ -127,6 +130,7 @@ def analyze_market_advanced(df, symbol):
             ai_score += 0.10
         signal_direction = 'BUY'
 
+    # شرط الاتجاه الهابط SELL
     elif current_price < latest['EMA_200'] and latest['EMA_20'] < latest['EMA_50']:
         if 35 <= latest['RSI'] <= 60:
             ai_score += 0.15
@@ -167,6 +171,7 @@ def analyze_market_advanced(df, symbol):
 # =====================================================================
 
 def track_active_trades():
+    """مراقبة الصفقات المفتوحة وإرسال تحديثات عند ضرب الأهداف أو الستوب"""
     global active_trades
     trades_to_remove = []
 
