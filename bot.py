@@ -9,7 +9,6 @@ import yfinance as yf
 # 1. إعدادات البوتين والأصول (Configuration)
 # =====================================================================
 
-# قائمة البوتات المستهدفة للإرسال (Bot 1 & Bot 2)
 BOTS_CONFIG = [
     {
         "name": "BAHAA_Trading_bot",
@@ -23,7 +22,6 @@ BOTS_CONFIG = [
     }
 ]
 
-# قائمة الأصول الـ 10 المراقبة
 SYMBOLS_MAP = {
     'XAUUSD': 'GC=F',
     'US30': '^DJI',
@@ -37,7 +35,6 @@ SYMBOLS_MAP = {
     'USDCAD': 'CAD=X'
 }
 
-# شروط الدقة المطلوبة (65% للذهب والمؤشرات / 70% للعملات)
 MIN_AI_ACCURACY = {
     'XAUUSD': 0.65,
     'NAS100': 0.65,
@@ -47,9 +44,7 @@ MIN_AI_ACCURACY = {
 }
 
 last_signal_time = {}
-COOLDOWN_PERIOD = 1800  # 30 دقيقة مانع تكرار لنفس الزوج
-
-# قائمة التتبع المباشر للصفقات النشطة
+COOLDOWN_PERIOD = 1800  # 30 دقيقة
 active_trades = []
 
 # =====================================================================
@@ -163,7 +158,28 @@ def analyze_market_advanced(df, symbol):
     return None
 
 # =====================================================================
-# 4. محرك تتبع الصفقات المباشر (Trade Tracker Engine)
+# 4. تقرير التشغيل المباشر للتليجرام (Startup Notification)
+# =====================================================================
+
+def send_startup_notification():
+    """إرسال إشعار فوري للتليجرام بمجرد تشغيل السكربت"""
+    print("🔄 جاري إرسال إشعار بدء التشغيل لـ Telegram...")
+    report_msg = "🚀 **تم تحديث وتشغيل السكربت بنجاح (XAUUSD PRO)**\n\n"
+    report_msg += "📊 **الأسعار المباشرة الحالية للأصول:**\n"
+    
+    for symbol, ticker in SYMBOLS_MAP.items():
+        df = fetch_market_data(ticker)
+        if df is not None and not df.empty:
+            price = round(df.iloc[-1]['close'], 4 if 'USD' in symbol and symbol not in ['XAUUSD', 'USDJPY'] else 2)
+            report_msg += f"• `{symbol}`: **{price}**\n"
+        else:
+            report_msg += f"• `{symbol}`: ⚠️ جاري الاتصال...\n"
+            
+    report_msg += "\n🔍 *جاري الفحص المباشر لاقتناص الفرص ذات السيولة العالية فقط...*"
+    broadcast_telegram_message(report_msg)
+
+# =====================================================================
+# 5. محرك تتبع الصفقات المباشر (Trade Tracker Engine)
 # =====================================================================
 
 def track_active_trades():
@@ -182,7 +198,6 @@ def track_active_trades():
         high_price = latest['high']
         low_price = latest['low']
 
-        # ------------------- تتبع الشراء (BUY) -------------------
         if trade['direction'] == 'BUY':
             if low_price <= trade['sl']:
                 msg = f"🛑 **تحديث صفقة {symbol} (BUY)**\n\nللأسف تم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
@@ -201,7 +216,6 @@ def track_active_trades():
                 msg = f"🎯 **تحديث صفقة {symbol} (BUY)**\n\n✅ **تم تحقيق Target 1 عند `{trade['tp1']}`!**\n💡 يُنصح بنقل الستوب إلى نقطة الدخول `{trade['entry']}` وتأمين الأرباح."
                 broadcast_telegram_message(msg)
 
-        # ------------------- تتبع البيع (SELL) -------------------
         elif trade['direction'] == 'SELL':
             if high_price >= trade['sl']:
                 msg = f"🛑 **تحديث صفقة {symbol} (SELL)**\n\nللأسف تم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
@@ -224,7 +238,7 @@ def track_active_trades():
         active_trades.remove(trade)
 
 # =====================================================================
-# 5. حلقة الفحص والتنفيذ (Main Execution Loop)
+# 6. حلقة الفحص والتنفيذ (Main Execution Loop)
 # =====================================================================
 
 def is_cooldown_active(symbol):
@@ -252,11 +266,8 @@ def format_telegram_alert(signal):
 
 def run_scanner():
     print("🚀 جاري فحص الأسواق وتتبع الصفقات المفتوحة...")
-    
-    # 1. تتبع الصفقات الحالية
     track_active_trades()
     
-    # 2. فحص صفقات جديدة
     for symbol, ticker in SYMBOLS_MAP.items():
         if is_cooldown_active(symbol):
             continue
@@ -269,7 +280,6 @@ def run_scanner():
                 broadcast_telegram_message(alert_msg)
                 last_signal_time[symbol] = time.time()
                 
-                # إضافة للصفقات النشطة للتتبع
                 active_trades.append({
                     'symbol': symbol,
                     'direction': signal['direction'],
@@ -282,6 +292,10 @@ def run_scanner():
 
 def main():
     print("🤖 تم تشغيل السكربت بنجاح لربط البوتين (BAHAA & BAHAA1)...")
+    
+    # 🔔 إرسال رسالة البدء للتليجرام فوراً
+    send_startup_notification()
+    
     while True:
         try:
             run_scanner()
