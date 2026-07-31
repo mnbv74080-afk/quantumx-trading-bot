@@ -9,6 +9,7 @@ import yfinance as yf
 # 1. إعدادات البوتين والأصول (Configuration)
 # =====================================================================
 
+# قائمة البوتات المستهدفة للإرسال (Bot 1 & Bot 2)
 BOTS_CONFIG = [
     {
         "name": "BAHAA_Trading_bot",
@@ -22,38 +23,41 @@ BOTS_CONFIG = [
     }
 ]
 
-# رموز الأسعار اللحظية الفورية
+# قائمة الأصول الـ 10 المراقبة
 SYMBOLS_MAP = {
-    'XAUUSD': 'GC=F',       # الذهب
-    'US30': 'YM=F',         # الداو جونز
-    'NAS100': 'NQ=F',       # النازداك
-    'GER30': '^GDAXI',      # الداكس
+    'XAUUSD': 'GC=F',
+    'US30': '^DJI',
+    'NAS100': '^IXIC',
+    'GER30': '^GDAXI',
     'EURUSD': 'EURUSD=X',
     'GBPUSD': 'GBPUSD=X',
     'GBPJPY': 'GBPJPY=X',
     'AUDUSD': 'AUDUSD=X',
-    'USDJPY': 'USDJPY=X',
-    'USDCAD': 'USDCAD=X'
+    'USDJPY': 'JPY=X',
+    'USDCAD': 'CAD=X'
 }
 
+# شروط الدقة المطلوبة (65% للذهب والمؤشرات / 70% للعملات)
 MIN_AI_ACCURACY = {
-    'XAUUSD': 0.70,
-    'NAS100': 0.70,
-    'US30': 0.70,
-    'GER30': 0.70,
-    'DEFAULT': 0.75
+    'XAUUSD': 0.65,
+    'NAS100': 0.65,
+    'US30': 0.65,
+    'GER30': 0.65,
+    'DEFAULT': 0.70
 }
 
 last_signal_time = {}
-COOLDOWN_PERIOD = 3600  # زيادة مانع التكرار إلى ساعة (3600 ثانية) لتفادي الصفقات العشوائية
+COOLDOWN_PERIOD = 1800  # 30 دقيقة مانع تكرار لنفس الزوج
 
+# قائمة التتبع المباشر للصفقات النشطة
 active_trades = []
 
 # =====================================================================
-# 2. وظيفة إرسال الرسائل والتنبيهات
+# 2. وظائف التليجرام والمراسلة المزدوجة (Dual Telegram Helper)
 # =====================================================================
 
 def broadcast_telegram_message(message):
+    """إرسال التنبيه أوتوماتيكياً إلى البوتين معاً"""
     for bot in BOTS_CONFIG:
         url = f"https://api.telegram.org/bot{bot['token']}/sendMessage"
         payload = {
@@ -64,36 +68,33 @@ def broadcast_telegram_message(message):
         try:
             res = requests.post(url, json=payload, timeout=10)
             if res.status_code == 200:
-                print(f"✅ تم الإرسال عبر: {bot['name']}")
+                print(f"✅ تم إرسال التنبيه بنجاح عبر البوت: {bot['name']}")
             else:
                 print(f"⚠️ فشل الإرسال عبر {bot['name']}: {res.text}")
         except Exception as e:
-            print(f"❌ خطأ شبكة: {e}")
+            print(f"❌ خطأ شبكة أثناء الإرسال للبوت {bot['name']}: {e}")
 
 # =====================================================================
-# 3. محرك جلب البيانات والتحليل المتقدم (مُصحح ومُطور)
+# 3. محرك التحليل والجلب (Analysis Engine)
 # =====================================================================
+
+def get_required_accuracy(symbol):
+    return MIN_AI_ACCURACY.get(symbol, MIN_AI_ACCURACY['DEFAULT'])
 
 def fetch_market_data(ticker_symbol):
-    """جلب بيانات الشارت بدقة عالية وحساب التغييرات اللحظية"""
     try:
-        df = yf.download(ticker_symbol, period="5d", interval="15m", progress=False)
-        if df.empty or len(df) < 50:
+        df = yf.download(tickers=ticker_symbol, period="5d", interval="15m", progress=False)
+        if df.empty or len(df) < 200:
             return None
-        
-        # معالجة الفهارس وإزالة الأسماء المتعددة للدرجات
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
-            
-        df = df.reset_index()
-        df.columns = [str(c).lower() for c in df.columns]
+        df.columns = [c.lower() for c in df.columns]
         return df
     except Exception as e:
         print(f"⚠️ خطأ جلب بيانات {ticker_symbol}: {e}")
         return None
 
 def analyze_market_advanced(df, symbol):
-    """محلل دقيق يمنع الصفقات الفورية عند بدء التشغيل إلا عند توفر شروط صارمة"""
     df['EMA_200'] = df['close'].ewm(span=200, adjust=False).mean()
     df['EMA_50'] = df['close'].ewm(span=50, adjust=False).mean()
     df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -109,64 +110,44 @@ def analyze_market_advanced(df, symbol):
     low_close = np.abs(df['low'] - df['close'].shift())
     ranges = pd.concat([high_low, high_close, low_close], axis=1)
     df['ATR'] = np.max(ranges, axis=1).rolling(14).mean()
-    
-    # إصلاح حساب RVOL مع بديل مدى الشمعة إذا كان الأحجام مفقودة (كما في المؤشرات)
-    if 'volume' in df.columns and df['volume'].sum() > 0:
-        vol_mean = df['volume'].rolling(20).mean()
-        df['RVOL'] = np.where(vol_mean > 0, df['volume'] / (vol_mean + 1e-9), 1.0)
-    else:
-        # البديل: مقارنة مدى الشمعة الحالية بمعدل المدى لآخر 20 شمعة
-        candle_range = df['high'] - df['low']
-        range_mean = candle_range.rolling(20).mean()
-        df['RVOL'] = np.where(range_mean > 0, candle_range / (range_mean + 1e-9), 1.0)
+    df['RVOL'] = df['volume'] / (df['volume'].rolling(20).mean() + 1e-9)
 
     latest = df.iloc[-1]
     current_price = latest['close']
     atr = latest['ATR']
-    rvol = float(latest['RVOL'])
+    rvol = latest['RVOL']
 
-    # التحقق من أن السعر حديث وغير صفري
-    if pd.isna(current_price) or current_price <= 0:
-        return None
-
-    ai_score = 0.40  # تخفيض النقطة المبدئية لمنع التوصيات الفورية
+    ai_score = 0.50
     signal_direction = None
 
-    # شروط صعود قوية (BUY)
     if current_price > latest['EMA_200'] and latest['EMA_20'] > latest['EMA_50']:
-        if 45 <= latest['RSI'] <= 65:
-            ai_score += 0.20
-        if rvol >= 1.2:  # اشتراط سيولة أعلى من المتوسط
-            ai_score += 0.20
-        if df.iloc[-1]['close'] > df.iloc[-2]['high']:  # كسر القمة السابقة
+        if 40 <= latest['RSI'] <= 65:
+            ai_score += 0.15
+        if rvol >= 1.0:
             ai_score += 0.10
         signal_direction = 'BUY'
 
-    # شروط هبوط قوية (SELL)
     elif current_price < latest['EMA_200'] and latest['EMA_20'] < latest['EMA_50']:
-        if 35 <= latest['RSI'] <= 55:
-            ai_score += 0.20
-        if rvol >= 1.2:
-            ai_score += 0.20
-        if df.iloc[-1]['close'] < df.iloc[-2]['low']:  # كسر القاع السابق
+        if 35 <= latest['RSI'] <= 60:
+            ai_score += 0.15
+        if rvol >= 1.0:
             ai_score += 0.10
         signal_direction = 'SELL'
 
-    required_accuracy = MIN_AI_ACCURACY.get(symbol, MIN_AI_ACCURACY['DEFAULT'])
+    required_accuracy = get_required_accuracy(symbol)
 
-    # شرط إرسال التوصية فقط في حال تجاوز الدقة المحددة وحضور سيولة مناسبة
-    if signal_direction and ai_score >= required_accuracy and rvol >= 1.1:
+    if signal_direction and ai_score >= required_accuracy:
         multiplier = 2.0 if symbol in ['XAUUSD', 'NAS100', 'US30', 'GER30'] else 1.5
         decimals = 2 if symbol in ['XAUUSD', 'US30', 'NAS100', 'GER30', 'GBPJPY', 'USDJPY'] else 4
 
         if signal_direction == 'BUY':
             sl = current_price - (atr * multiplier)
-            tp1 = current_price + (atr * 1.5)
-            tp2 = current_price + (atr * 3.0)
+            tp1 = current_price + (atr * 1.2)
+            tp2 = current_price + (atr * 2.5)
         else:
             sl = current_price + (atr * multiplier)
-            tp1 = current_price - (atr * 1.5)
-            tp2 = current_price - (atr * 3.0)
+            tp1 = current_price - (atr * 1.2)
+            tp2 = current_price - (atr * 2.5)
 
         return {
             'symbol': symbol,
@@ -182,24 +163,8 @@ def analyze_market_advanced(df, symbol):
     return None
 
 # =====================================================================
-# 4. تقرير بدء التشغيل ومتابعة الصفقات
+# 4. محرك تتبع الصفقات المباشر (Trade Tracker Engine)
 # =====================================================================
-
-def send_startup_report():
-    print("🔄 جاري إعداد تقرير الأسعار المباشرة...")
-    report_msg = "🚀 **تم تحديث وتشغيل السكربت بنجاح (XAUUSD PRO)**\n\n📊 **الأسعار المباشرة الحالية للأصول:**\n"
-    
-    for symbol, ticker in SYMBOLS_MAP.items():
-        df = fetch_market_data(ticker)
-        if df is not None:
-            last_price = float(df.iloc[-1]['close'])
-            decimals = 2 if symbol in ['XAUUSD', 'US30', 'NAS100', 'GER30', 'GBPJPY', 'USDJPY'] else 4
-            report_msg += f"• `{symbol}`: **{round(last_price, decimals)}**\n"
-        else:
-            report_msg += f"• `{symbol}`: ⚠️ متعذر الجلب حالياً\n"
-            
-    report_msg += "\n🔍 *جاري الفحص المباشر لاقتناص الفرص ذات السيولة العالية فقط...*"
-    broadcast_telegram_message(report_msg)
 
 def track_active_trades():
     global active_trades
@@ -214,12 +179,13 @@ def track_active_trades():
             continue
             
         latest = df.iloc[-1]
-        high_price = float(latest['high'])
-        low_price = float(latest['low'])
+        high_price = latest['high']
+        low_price = latest['low']
 
+        # ------------------- تتبع الشراء (BUY) -------------------
         if trade['direction'] == 'BUY':
             if low_price <= trade['sl']:
-                msg = f"🛑 **تحديث صفقة {symbol} (BUY)**\n\nتم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
+                msg = f"🛑 **تحديث صفقة {symbol} (BUY)**\n\nللأسف تم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
                 broadcast_telegram_message(msg)
                 trades_to_remove.append(trade)
                 continue
@@ -232,12 +198,13 @@ def track_active_trades():
 
             if high_price >= trade['tp1'] and not trade['tp1_hit']:
                 trade['tp1_hit'] = True
-                msg = f"🎯 **تحديث صفقة {symbol} (BUY)**\n\n✅ **تم تحقيق Target 1 عند `{trade['tp1']}`!**\n💡 يُنصح بنقل الستوب لنقطة الدخول `{trade['entry']}`."
+                msg = f"🎯 **تحديث صفقة {symbol} (BUY)**\n\n✅ **تم تحقيق Target 1 عند `{trade['tp1']}`!**\n💡 يُنصح بنقل الستوب إلى نقطة الدخول `{trade['entry']}` وتأمين الأرباح."
                 broadcast_telegram_message(msg)
 
+        # ------------------- تتبع البيع (SELL) -------------------
         elif trade['direction'] == 'SELL':
             if high_price >= trade['sl']:
-                msg = f"🛑 **تحديث صفقة {symbol} (SELL)**\n\nتم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
+                msg = f"🛑 **تحديث صفقة {symbol} (SELL)**\n\nللأسف تم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
                 broadcast_telegram_message(msg)
                 trades_to_remove.append(trade)
                 continue
@@ -250,14 +217,14 @@ def track_active_trades():
 
             if low_price <= trade['tp1'] and not trade['tp1_hit']:
                 trade['tp1_hit'] = True
-                msg = f"🎯 **تحديث صفقة {symbol} (SELL)**\n\n✅ **تم تحقيق Target 1 عند `{trade['tp1']}`!**\n💡 يُنصح بنقل الستوب لنقطة الدخول `{trade['entry']}`."
+                msg = f"🎯 **تحديث صفقة {symbol} (SELL)**\n\n✅ **تم تحقيق Target 1 عند `{trade['tp1']}`!**\n💡 يُنصح بنقل الستوب إلى نقطة الدخول `{trade['entry']}` وتأمين الأرباح."
                 broadcast_telegram_message(msg)
 
     for trade in trades_to_remove:
         active_trades.remove(trade)
 
 # =====================================================================
-# 5. حلقة التنفيذ (Execution Loop)
+# 5. حلقة الفحص والتنفيذ (Main Execution Loop)
 # =====================================================================
 
 def is_cooldown_active(symbol):
@@ -280,12 +247,16 @@ def format_telegram_alert(signal):
 🔹 **الهدف الثاني (TP2):** `{signal['tp2']}`
 
 🤖 **دقة النموذج:** `{signal['ai_accuracy']}%`
-📊 **مؤشر السيولة (RVOL):** `{signal['rvol']}`
+📊 **مؤشر السيولة:** `{signal['rvol']}`
 """
 
 def run_scanner():
+    print("🚀 جاري فحص الأسواق وتتبع الصفقات المفتوحة...")
+    
+    # 1. تتبع الصفقات الحالية
     track_active_trades()
     
+    # 2. فحص صفقات جديدة
     for symbol, ticker in SYMBOLS_MAP.items():
         if is_cooldown_active(symbol):
             continue
@@ -298,6 +269,7 @@ def run_scanner():
                 broadcast_telegram_message(alert_msg)
                 last_signal_time[symbol] = time.time()
                 
+                # إضافة للصفقات النشطة للتتبع
                 active_trades.append({
                     'symbol': symbol,
                     'direction': signal['direction'],
@@ -309,15 +281,13 @@ def run_scanner():
                 })
 
 def main():
-    print("🤖 جاري تشغيل السكربت المعادل المطور...")
-    send_startup_report()
-    
+    print("🤖 تم تشغيل السكربت بنجاح لربط البوتين (BAHAA & BAHAA1)...")
     while True:
         try:
             run_scanner()
-            time.sleep(60)
+            time.sleep(60)  # دورة كل دقيقة
         except Exception as e:
-            print(f"⚠️ حدث خطأ: {e}. محاولة مجدداً خلال 15 ثانية...")
+            print(f"⚠️ خطأ غير متوقع: {e}. محاولة جديدة بعد 15 ثانية...")
             time.sleep(15)
 
 if __name__ == "__main__":
