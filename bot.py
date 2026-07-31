@@ -9,7 +9,6 @@ import yfinance as yf
 # 1. إعدادات البوتين والأصول (Configuration)
 # =====================================================================
 
-# إعدادات البوتين المحددة لإرسال التنبيهات والتحديثات
 BOTS_CONFIG = [
     {
         "name": "BAHAA_Trading_bot",
@@ -23,12 +22,12 @@ BOTS_CONFIG = [
     }
 ]
 
-# قائمة الأصول الـ 10 المراقبة مع تصحيح الرموز لـ Yahoo Finance
+# رموز دقيقة 100% للعقود المباشرة والعملات
 SYMBOLS_MAP = {
-    'XAUUSD': 'GC=F',
-    'US30': '^DJI',
-    'NAS100': '^IXIC',
-    'GER30': '^GDAXI',
+    'XAUUSD': 'GC=F',       # عقود الذهب الآجلة
+    'US30': 'YM=F',         # عقود الداو جونز الآجلة
+    'NAS100': 'NQ=F',       # عقود النازداك 100 الآجلة (NQ)
+    'GER30': '^GDAXI',      # مؤشر الداكس الألماني
     'EURUSD': 'EURUSD=X',
     'GBPUSD': 'GBPUSD=X',
     'GBPJPY': 'GBPJPY=X',
@@ -37,7 +36,6 @@ SYMBOLS_MAP = {
     'USDCAD': 'USDCAD=X'
 }
 
-# نسبة الدقة المطلوبة حسب نوع الأصل (65% للمؤشرات والذهب / 70% للعملات)
 MIN_AI_ACCURACY = {
     'XAUUSD': 0.65,
     'NAS100': 0.65,
@@ -47,17 +45,16 @@ MIN_AI_ACCURACY = {
 }
 
 last_signal_time = {}
-COOLDOWN_PERIOD = 1800  # 30 دقيقة مانع تكرار لنفس الزوج
+COOLDOWN_PERIOD = 1800  # 30 دقيقة مانع تكرار
 
-# قائمة الصفقات النشطة المفتوحة للتتبع
 active_trades = []
 
 # =====================================================================
-# 2. وظائف التليجرام والمراسلة المزدوجة (Dual Telegram Helper)
+# 2. وظائف التليجرام والمراسلة (Telegram Helper)
 # =====================================================================
 
 def broadcast_telegram_message(message):
-    """إرسال الرسائل والتنبيهات أوتوماتيكياً إلى البوتين معاً"""
+    """إرسال التنبيهات أوتوماتيكياً إلى البوتين معاً"""
     for bot in BOTS_CONFIG:
         url = f"https://api.telegram.org/bot{bot['token']}/sendMessage"
         payload = {
@@ -68,11 +65,11 @@ def broadcast_telegram_message(message):
         try:
             res = requests.post(url, json=payload, timeout=10)
             if res.status_code == 200:
-                print(f"✅ تم الإرسال بنجاح عبر البوت: {bot['name']}")
+                print(f"✅ تم الإرسال عبر البوت: {bot['name']}")
             else:
                 print(f"⚠️ فشل الإرسال عبر {bot['name']}: {res.text}")
         except Exception as e:
-            print(f"❌ خطأ شبكة أثناء الإرسال للبوت {bot['name']}: {e}")
+            print(f"❌ خطأ شبكة مع البوت {bot['name']}: {e}")
 
 # =====================================================================
 # 3. محرك جلب البيانات والتحليل المتقدم (Analysis Engine)
@@ -82,7 +79,7 @@ def get_required_accuracy(symbol):
     return MIN_AI_ACCURACY.get(symbol, MIN_AI_ACCURACY['DEFAULT'])
 
 def fetch_market_data(ticker_symbol):
-    """جلب بيانات الشارت بطريقة مضمونة ومقاومة للتقييد"""
+    """جلب بيانات الشارت بدقة وبأمان"""
     try:
         ticker = yf.Ticker(ticker_symbol)
         df = ticker.history(period="7d", interval="15m")
@@ -92,11 +89,10 @@ def fetch_market_data(ticker_symbol):
         df.columns = [c.lower() for c in df.columns]
         return df
     except Exception as e:
-        print(f"⚠️ خطأ في جلب بيانات {ticker_symbol}: {e}")
+        print(f"⚠️ خطأ جلب بيانات {ticker_symbol}: {e}")
         return None
 
 def analyze_market_advanced(df, symbol):
-    """تحليل الحركة الفنية وفلترة الدقة والاتجاه والسيولة"""
     df['EMA_200'] = df['close'].ewm(span=200, adjust=False).mean()
     df['EMA_50'] = df['close'].ewm(span=50, adjust=False).mean()
     df['EMA_20'] = df['close'].ewm(span=20, adjust=False).mean()
@@ -122,7 +118,6 @@ def analyze_market_advanced(df, symbol):
     ai_score = 0.50
     signal_direction = None
 
-    # شرط الاتجاه الصاعد BUY
     if current_price > latest['EMA_200'] and latest['EMA_20'] > latest['EMA_50']:
         if 40 <= latest['RSI'] <= 65:
             ai_score += 0.15
@@ -130,7 +125,6 @@ def analyze_market_advanced(df, symbol):
             ai_score += 0.10
         signal_direction = 'BUY'
 
-    # شرط الاتجاه الهابط SELL
     elif current_price < latest['EMA_200'] and latest['EMA_20'] < latest['EMA_50']:
         if 35 <= latest['RSI'] <= 60:
             ai_score += 0.15
@@ -167,11 +161,28 @@ def analyze_market_advanced(df, symbol):
     return None
 
 # =====================================================================
-# 4. محرك تتبع الصفقات المباشر (Trade Tracker Engine)
+# 4. رسالة تفقد أسعار البدء وتتبع الصفقات (Startup & Tracker Engine)
 # =====================================================================
 
+def send_startup_report():
+    """جلب السعر الحالي لجميع الأصول وإرسال تقرير البدء فوراً على البوتين"""
+    print("🔄 جاري إعداد تقرير الأسعار المباشرة لمرحلة البدء...")
+    report_msg = "🚀 **تم بدء تشغيل السكربت بنجاح (XAUUSD PRO)**\n\n📊 **الأسعار المباشرة الحالية للأصول:**\n"
+    
+    for symbol, ticker in SYMBOLS_MAP.items():
+        df = fetch_market_data(ticker)
+        if df is not None:
+            last_price = df.iloc[-1]['close']
+            decimals = 2 if symbol in ['XAUUSD', 'US30', 'NAS100', 'GER30', 'GBPJPY', 'USDJPY'] else 4
+            report_msg += f"• `{symbol}`: **{round(last_price, decimals)}**\n"
+        else:
+            report_msg += f"• `{symbol}`: ⚠️ متعذر الجلب\n"
+            
+    report_msg += "\n🔍 *جاري المسح الفوري واقتناص أفضل الفرص...*"
+    broadcast_telegram_message(report_msg)
+
 def track_active_trades():
-    """مراقبة الصفقات المفتوحة وإرسال تحديثات عند ضرب الأهداف أو الستوب"""
+    """تتبع الصفقات النشطة وإرسال الإشعارات"""
     global active_trades
     trades_to_remove = []
 
@@ -187,7 +198,6 @@ def track_active_trades():
         high_price = latest['high']
         low_price = latest['low']
 
-        # ------------------- تتبع الشراء (BUY) -------------------
         if trade['direction'] == 'BUY':
             if low_price <= trade['sl']:
                 msg = f"🛑 **تحديث صفقة {symbol} (BUY)**\n\nللأسف تم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
@@ -206,7 +216,6 @@ def track_active_trades():
                 msg = f"🎯 **تحديث صفقة {symbol} (BUY)**\n\n✅ **تم تحقيق Target 1 عند `{trade['tp1']}`!**\n💡 يُنصح بنقل الستوب إلى نقطة الدخول `{trade['entry']}` وتأمين الأرباح."
                 broadcast_telegram_message(msg)
 
-        # ------------------- تتبع البيع (SELL) -------------------
         elif trade['direction'] == 'SELL':
             if high_price >= trade['sl']:
                 msg = f"🛑 **تحديث صفقة {symbol} (SELL)**\n\nللأسف تم ضرب وقف الخسارة (SL) عند `{trade['sl']}`."
@@ -256,12 +265,8 @@ def format_telegram_alert(signal):
 """
 
 def run_scanner():
-    print("🚀 جاري فحص الأسواق وتتبع الصفقات المفتوحة...")
-    
-    # 1. تتبع الصفقات الحالية
     track_active_trades()
     
-    # 2. فحص صفقات جديدة
     for symbol, ticker in SYMBOLS_MAP.items():
         if is_cooldown_active(symbol):
             continue
@@ -274,7 +279,6 @@ def run_scanner():
                 broadcast_telegram_message(alert_msg)
                 last_signal_time[symbol] = time.time()
                 
-                # إضافة للصفقات النشطة للتتبع
                 active_trades.append({
                     'symbol': symbol,
                     'direction': signal['direction'],
@@ -286,11 +290,15 @@ def run_scanner():
                 })
 
 def main():
-    print("🤖 تم تشغيل السكربت بنجاح لربط البوتين (BAHAA & BAHAA1)...")
+    print("🤖 جاري تشغيل السكربت المطور للبوتين...")
+    # 1. إرسال تقرير أسعار الأصول فور التشغيل
+    send_startup_report()
+    
+    # 2. بدء حلقة التتبع والمسح المستمر
     while True:
         try:
             run_scanner()
-            time.sleep(60)  # دورة كل دقيقة
+            time.sleep(60)
         except Exception as e:
             print(f"⚠️ خطأ غير متوقع: {e}. محاولة جديدة بعد 15 ثانية...")
             time.sleep(15)
